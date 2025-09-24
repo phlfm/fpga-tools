@@ -1,0 +1,60 @@
+# syntax=docker/dockerfile:latest
+
+# Reference: requirements for Vivado and Vitis
+# https://docs.amd.com/r/en-US/ug973-vivado-release-notes-install-license/Requirements-and-Setup
+
+# Reference: requirements for Petalinux
+# https://docs.amd.com/r/en-US/ug1144-petalinux-tools-reference-guide/Overview
+#
+# This dockerfile uses RUN with the --mount flag to minimize disk usage.
+#
+# Warning: this --mount flag does not accept variables unless using the
+# syntax=docker/dockerfile:latest directive
+#
+# Warning 2: if receiving "# failed to compute cache key: not found: not found"
+# errors, check that the mount location is not being captured by the
+# .dockerignore file
+
+################################################################################
+
+FROM xilinx-2-petalinux
+
+# Labels
+LABEL description="Image for Xilinx toolchain"
+
+ARG GROUP_ID
+ARG USER_ID
+ARG USER_NAME
+ARG XILINX_VERSION
+ENV XILINX_VERSION=${XILINX_VERSION}
+
+# Install Vitis and Vivado
+# Generate the authentication token and run the installer
+# Token will be stored in ~/.Xilinx inside the build cache
+RUN --mount=type=bind,target=/temp,source=temp,rw \
+    cd /temp && \
+    ./generate_auth_token.sh && \
+    ./xsetup \
+        --agree XilinxEULA,3rdPartyEULA \
+        --batch Install \
+        --config ./install_config_1_vitis.txt \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install libs needed by Vitis
+RUN /tools/Xilinx/${XILINX_VERSION}/Vitis/scripts/installLibs.sh \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create user inside container (this avoids ERROR: Exiting Installer: Cannot install as root user !)
+# It is common to see this being done in the "entrypoint.sh" but this container
+# is meant to be built locally and not distribuited through
+# nexus or other means due to its huge size.
+# Thus we can create the user and set uid/gid during build process.
+RUN /usr/sbin/groupadd --gid ${GROUP_ID} ${USER_NAME} && \
+    /usr/sbin/useradd --shell /bin/bash -u ${USER_ID} -g ${GROUP_ID} \
+        --groups sudo -m ${USER_NAME} > /dev/null 2>&1
+
+# Setup entrypoint
+COPY layer1-xilinx/entrypoint-xilinx.sh /entrypoint-xilinx.sh
+ENTRYPOINT ["/entrypoint-xilinx.sh"]

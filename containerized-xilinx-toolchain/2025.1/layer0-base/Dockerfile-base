@@ -1,0 +1,73 @@
+# syntax=docker/dockerfile:latest
+
+#------------------------------------
+# Build and configure base image - Ubuntu Base
+#------------------------------------
+# 24.04 as per https://hub.docker.com/_/ubuntu
+FROM ubuntu:noble-20250529
+
+ENV PYTHON_VERSION="3"
+
+# Labels
+LABEL description="Ubuntu 24.04 (Noble) base image"
+LABEL ubuntu="ubuntu:noble-20250529"
+# Needed for adding ppa
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends software-properties-common && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Get git from the maintainers ppa
+RUN /usr/bin/apt-add-repository -u -y ppa:git-core/ppa
+
+# Install base package requirements
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bzip2 \
+    curl \
+    expect \
+    git \
+    less \
+    libssl-dev \
+    p7zip-full \
+    p7zip-rar \
+    pkg-config \
+    python3-dev \
+    python3-pip \
+    python3-venv \
+    rsync \
+    sudo \
+    unzip \
+    vim \
+    wget \
+&& apt-get clean \
+&& rm -rf /var/lib/apt/lists/*
+
+# Python -----------------------------------------------------------------------
+# Ensure the default 'python' command points to the desired Python 3 version.
+# This makes calling 'python' consistent across environments that expect it to exist.
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python${PYTHON_VERSION} 2
+# Set up an isolated virtual environment to safely install Python packages
+# without interfering with the system Python. Upgrade pip and setuptools inside the venv.
+RUN python3 -m venv /opt/venv && \
+    /opt/venv/bin/pip install --upgrade pip setuptools
+# Prepend the virtual environment's binary path to the system PATH.
+# This ensures the venv's Python and pip are used by default in the container.
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Use bash, not dash, or later conditionals fail
+RUN echo "dash dash/sh boolean false" | debconf-set-selections
+RUN DEBIAN_FRONTEND=noninteractive dpkg-reconfigure dash
+
+# Remove default "ubuntu" user and group if they exist
+RUN if id ubuntu &>/dev/null; then \
+        deluser --remove-home ubuntu && \
+        echo "Removed default user \"ubuntu\""; \
+    fi || true
+RUN if getent group ubuntu &>/dev/null; then \
+        delgroup ubuntu && \
+        echo "Removed default group \"ubuntu\""; \
+    fi || true
+
+# Entrypoint, dynamically creates user inside container
+COPY layer0-base/entrypoint-base.sh /entrypoint-base.sh
+ENTRYPOINT ["/entrypoint-base.sh"]

@@ -1,0 +1,75 @@
+---
+
+x-params-common-run: &params-common-run
+    tty: true
+    init: true
+    stdin_open: true
+    privileged: true
+    working_dir: ${PWD}
+    environment:
+        - USER_ID=${USER_ID}
+        - GROUP_ID=${GROUP_ID}
+        - USER_NAME=${USER}
+        - DISPLAY=${DISPLAY}
+        - DEBUG_DOCKER=${DEBUG_DOCKER}
+
+# The xilinx parameters are not needed for all builds but there's also no harm
+# in having them here.
+x-params-common-build: &params-common-build
+    context: .
+    args:
+        USER_ID: ${USER_ID}
+        GROUP_ID: ${GROUP_ID}
+        USER_NAME: ${USER}
+        XILINX_VERSION: ${XILINX_VERSION}
+
+x-params-base-volumes: &params-base-volumes
+    volumes:
+        - ${PWD}:${PWD}
+        - /tmp/.X11-unix:/tmp/.X11-unix
+
+x-params-xilinx-volumes: &params-xilinx-volumes
+    volumes:
+        - ${PWD}:${PWD}
+        - /tmp/.X11-unix:/tmp/.X11-unix
+        - "${PWD}/.Xilinx:${HOME}/.Xilinx"
+        - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
+
+services:
+    # Base ubuntu image
+    base-u24:
+        <<: [*params-common-run, *params-base-volumes]
+        build:
+            <<: *params-common-build
+            dockerfile: layer0-base/Dockerfile-base
+        image: base-u24
+        hostname: base-u24
+        container_name: base-u24
+
+    # Xilinx installation (Vivado, Vitis, Petalinux, etc)
+    xilinx-1-dependencies:
+        <<: [*params-common-run, *params-xilinx-volumes]
+        build:
+            <<: *params-common-build
+            dockerfile: layer1-xilinx/Dockerfile-xilinx-1-dependencies
+        image: xilinx-1-dependencies
+        hostname: xilinx-1-dependencies
+        container_name: xilinx-1-dependencies
+
+    xilinx-2-petalinux:
+        <<: [*params-common-run, *params-xilinx-volumes]
+        build:
+            <<: *params-common-build
+            dockerfile: layer1-xilinx/Dockerfile-xilinx-2-petalinux
+        image: xilinx-2-petalinux
+        hostname: xilinx-2-petalinux
+        container_name: xilinx-2-petalinux
+
+    xilinx-3-vitis-unified:
+        <<: [*params-common-run, *params-xilinx-volumes]
+        build:
+            <<: *params-common-build
+            dockerfile: layer1-xilinx/Dockerfile-xilinx-3-vitis-unified
+        image: xilinx-3-vitis-unified
+        hostname: xilinx-3-vitis-unified
+        container_name: xilinx-3-vitis-unified

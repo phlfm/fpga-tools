@@ -1,0 +1,127 @@
+# syntax=docker/dockerfile:latest
+
+# Reference: requirements for Vivado and Vitis
+# https://docs.amd.com/r/en-US/ug973-vivado-release-notes-install-license/Requirements-and-Setup
+
+# Reference: requirements for Petalinux
+# https://docs.amd.com/r/en-US/ug1144-petalinux-tools-reference-guide/Overview
+#
+# This dockerfile uses RUN with the --mount flag to minimize disk usage.
+#
+# Warning: this --mount flag does not accept variables unless using the
+# syntax=docker/dockerfile:latest directive
+#
+# Warning 2: if receiving "# failed to compute cache key: not found: not found"
+# errors, check that the mount location is not being captured by the
+# .dockerignore file
+
+################################################################################
+
+FROM base-u24
+
+# Labels
+LABEL description="Image for Xilinx toolchain"
+
+# Initial steps for Installation
+RUN mkdir -p /tools/Xilinx
+
+# Packages needed for Petalinux installation
+# Acquired from 2025.1_petalinux_OS_Package_latest_list.xlsx
+# https://adaptivesupport.amd.com/s/article/000037805?language=en_US
+RUN dpkg --add-architecture i386 && \
+    apt-get update && \
+    apt-get install -y \
+        autoconf \
+        automake \
+        bison \
+        build-essential \
+        chrpath \
+        cpio \
+        debianutils \
+        diffstat \
+        expect \
+        flex \
+        gawk \
+        gcc \
+        gcc-multilib \
+        git \
+        git-core \
+        gnupg \
+        gzip \
+        iproute2 \
+        iputils-ping \
+        libegl1 \
+        libglx-mesa0 \
+        libncurses5-dev \
+        libsdl1.2-dev \
+        libselinux1 \
+        libssl-dev \
+        libtool \
+        make \
+        net-tools \
+        pax \
+        pylint \
+        python-is-python3 \
+        python3 \
+        python3-git \
+        python3-jinja2 \
+        python3-pexpect \
+        python3-pip \
+        screen \
+        socat \
+        tar \
+        texinfo \
+        tftpd-hpa \
+        unzip \
+        wget \
+        xterm \
+        xz-utils \
+        zlib1g-dev \
+        zlib1g-dev \
+        zlib1g:i386 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Extra packages needed and not stated anywhere :(
+# libgtk-3 needed to fix "The Eclipse executable launcher no longer supports running with GTK + 2.x. Continuing using GTK+ 3.x."
+# libidn11 needed to fix "/opt/Xilinx/Vitis/2022.1/tps/lnx64/cmake-3.3.2/bin/cmake: error while loading shared libraries: libidn.so.11: cannot open shared object file: No such file or directory"
+# libidn11 reference: https://support.xilinx.com/s/question/0D52E00006jrzsYSAQ/platform-project-cannot-be-created-on-vitis?language=en_US
+# dbus-x11 needed to fix VitisAI RPU flow error: SWT SessionManagerDBus: Failed to connect to org.gnome.SessionManager: Failed to execute child process “dbus-launch” (No such file or directory)
+# libtinfo5 needed for Petalinux
+# dnsutils needed for Petalinux
+# locales needed for Petalinux
+# x11-utils needed for xlsclients (needed for vitis)
+RUN apt-get update && apt-get install -y \
+    bc \
+    libxtst6 \
+    libxi6 \
+    libgtk2.0-0 \
+    locales \
+    dnsutils \
+    sudo \
+    libgtk-3-dev \
+    libidn12 \
+    dbus-x11 \
+    x11-utils \
+    && wget http://security.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb \
+    && wget https://nz2.archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb \
+    && apt install ./libtinfo5_6.3-2ubuntu0.1_amd64.deb \
+    && apt install ./libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb \
+    && rm ./libtinfo5_6.3-2ubuntu0.1_amd64.deb \
+    && rm ./libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# More packages needed for install
+RUN --mount=type=bind,target=/temp,source=temp,rw \
+    cd /temp && \
+    ./installLibs.sh \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Needed for Petalinux: /bin/bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
+RUN locale-gen en_US.UTF-8 && update-locale
+
+# Setup entrypoint
+COPY layer1-xilinx/entrypoint-xilinx.sh /entrypoint-xilinx.sh
+ENTRYPOINT ["/entrypoint-xilinx.sh"]

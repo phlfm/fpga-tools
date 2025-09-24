@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:latest
+
+# Reference: requirements for Vivado and Vitis
+# https://docs.amd.com/r/en-US/ug973-vivado-release-notes-install-license/Requirements-and-Setup
+
+# Reference: requirements for Petalinux
+# https://docs.amd.com/r/en-US/ug1144-petalinux-tools-reference-guide/Overview
+#
+# This dockerfile uses RUN with the --mount flag to minimize disk usage.
+#
+# Warning: this --mount flag does not accept variables unless using the
+# syntax=docker/dockerfile:latest directive
+#
+# Warning 2: if receiving "# failed to compute cache key: not found: not found"
+# errors, check that the mount location is not being captured by the
+# .dockerignore file
+
+################################################################################
+
+FROM xilinx-1-dependencies
+
+# Labels
+LABEL description="Image for Xilinx toolchain"
+
+# Install Petalinux first because it should be faster than Vitis / Vivado
+# Point sh to bash instead of dash
+RUN rm /bin/sh && ln -s /bin/bash /bin/sh
+
+# Generate the authentication token and run the installer
+# Token will be stored in ~/.Xilinx inside the build cache
+RUN --mount=type=bind,target=/temp,source=temp,rw \
+    cd /temp && \
+    ./generate_auth_token.sh && \
+    ./xsetup \
+        --agree XilinxEULA,3rdPartyEULA \
+        --batch Install \
+        --config ./install_config_9_petalinux_1_all_arch.txt \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+ENTRYPOINT ["/entrypoint-xilinx.sh"]
