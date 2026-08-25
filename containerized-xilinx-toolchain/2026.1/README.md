@@ -1,119 +1,72 @@
-# Toolchain Version 2025.1
+# Toolchain Version 2026.1
+
+## Strategy
+
+Vivado/Vitis is installed on the host, not inside the container image.
+
+Running the Xilinx `xsetup` installer inside a docker/podman build fails with
+disk space errors even with 500+ GB free, and takes over 2 hours to reach
+that failure. That makes the image impossible to debug and iterate on.
+
+So the image only contains the OS and required libraries. Vivado/Vitis is
+installed and run from `/tools/Xilinx` on the host, using the
+`xilinx-dependencies` container only to guarantee the installer/tools run
+against the exact OS/libs they expect (see [compose.yml](compose.yml)).
+
+This is not the ideal setup - Vivado inside the container would be
+preferable - but it is not currently viable given the above.
 
 ## Building the Container
 
-**Note on Vivado/Vitis installation:**
-Running the Xilinx `xsetup` installer inside the docker/podman build can fail
-with disk space errors even with hundreds of GB free, even after configuring
-all the temp directories, overlay and cache locations, etc. plus the commit
-stage takes hours and hours, plus the 2 hour wait for the toolchain download
-and install.
-To avoid all of this, Vivado/Vitis is installed directly on the host at
-`/tools/Xilinx` - not by running `xsetup` on the bare host, but through the
-`xilinx-dependencies` container itself (via `make install_vivado`), with
-`/tools/Xilinx` bind-mounted read-write to `/tools/Xilinx` inside the
-container. This writes the install straight through to host disk (never
-touching the container's build layer) while guaranteeing the installer runs
-against the exact same OS/libraries the runtime container has. The image
-itself only ever contains the OS and the required libraries; at runtime the
-host's `/tools/Xilinx` is bind-mounted back in, read-write, at
-`/tools/Xilinx` (see [compose.yml](compose.yml)).
+Install dir is hardcoded to `/tools/Xilinx` (`XILINX_INSTALL_DIR` in the
+[Makefile](Makefile)). Change it there if you need a different path.
 
-The host install directory is hardcoded to `/tools/Xilinx` (see
-`XILINX_INSTALL_DIR` in the [Makefile](Makefile)). If you need it somewhere
-else, grep the repo for `XILINX_INSTALL_DIR` and update it there.
-
-**1. Build the base image:**
-run `make image_base`
-
-**2. Download webinstaller:**
-run `make image_xilinx` and download the webinstaller it is requesting
-
-**3. Configure the build:**
-Use a text editor to select your desired products and part numbers in the
-following files:
-  - [Vitis and Vivado configuration](layer1-xilinx/install_config_1_vitis.txt)
-
-**4. Prepare the build environment:**
-run `make image_xilinx` again. This will create a temp directory for the
-installer files and extract/copy files into it.
-
-**5. Provide authentication:**
-copy the `generate_auth_token.sh` script to the newly created temp directory
-and edit the file to include your Xilinx account credentials.
-
-**6. Build the image:**
-run `make image_xilinx` again. This builds the `xilinx-dependencies` image,
-which only installs the OS and required libraries - it does not install
-Vivado/Vitis.
-
-**7. Install Vivado/Vitis onto the host:**
-run `make install_vivado`. This runs the installer through the
-`xilinx-dependencies` image with `/tools/Xilinx` mounted read-write at
-`/tools/Xilinx`, so Vivado/Vitis ends up installed on the host, not in the
-image.
-
-**Warning:**
-The install can still take a while and require significant disk space,
-potentially exceeding 200 GB, depending on the products and devices you
-selected in the configuration file.
-
-**Note on the install directory:**
-The Makefile does not create or `chown` the install directory for you - it
-only checks it and tells you what to run. Before `make image_xilinx` /
-`make install_vivado` / `make attach_xilinx` will proceed, the directory
-`/tools/Xilinx` (hardcoded as `XILINX_INSTALL_DIR` in the
-[Makefile](Makefile)) must already exist, and for `make install_vivado`
-specifically it must also be writable by your user, e.g.:
+`/tools/Xilinx` must exist before `make image_xilinx`, `make install_vivado`,
+or `make attach_xilinx`, and must be writable by your user for
+`make install_vivado`:
 ```
 sudo mkdir -p /tools/Xilinx
 sudo chown $(id -u):$(id -g) /tools/Xilinx
 ```
 
+**1.** `make image_base` - builds the base image.
+
+**2.** `make image_xilinx` - prompts you to download the Xilinx webinstaller.
+
+**3.** Edit
+[install_config_1_vitis.txt](layer1-xilinx/install_config_1_vitis.txt) to
+select the products/devices you want.
+
+**4.** `make image_xilinx` - extracts the installer into `temp/`.
+
+**5.** Copy `generate_auth_token.sh` into `temp/` and fill in your Xilinx
+credentials.
+
+**6.** `make image_xilinx` - builds the `xilinx-dependencies` image (OS +
+libs only, no Vivado/Vitis).
+
+**7.** `make install_vivado` - installs Vivado/Vitis onto the host at
+`/tools/Xilinx`, running the installer through the `xilinx-dependencies`
+container with `/tools/Xilinx` mounted read-write.
+
+Step 7 can take a while and use 200+ GB, depending on the products/devices
+selected.
+
 ## Using the Container
 
-There are two primary ways to start the container:
+- From this directory: `make attach_xilinx`
+- From another directory, replacing `<PATH_TO_THIS_DIR>`:
+`USER_ID=$(id -u) GROUP_ID=$(id -g) XILINX_VERSION=2026.1 DEBUG_DOCKER=false podman compose -f <PATH_TO_THIS_DIR>/compose.yml run --rm xilinx-dependencies`
 
-**1. Start from this directory:**
-to launch the container with the correct settings from the project's root
-directory, run:
-`make attach_xilinx`
+On start you'll see the toolchain version and the `activate_*` aliases
+available for the tool environments (CLI and GUI).
 
-**2. Start from another directory:**
-if you want to start the container from a different directory, use the
-following command, replacing `<PATH_TO_THIS_DIR>` with the absolute path to
-this project folder:
-`USER_ID=$(id -u) GROUP_ID=$(id -g) XILINX_VERSION=2026.1 DEBUG_DOCKER=false docker-compose -f <PATH_TO_THIS_DIR>/compose.yml run --rm xilinx-dependencies`
+## Shared Resources
 
-Once the container is running, you will see a welcome message displaying the
-toolchain version and the aliases available to activate the tool environments.
-From there, you can use the Xilinx tools via both the command line (CLI) and
-their graphical interfaces (GUI).
+See [compose.yml](compose.yml).
 
-## Container shared resources
-
-This container is already configured to work with Xilinx tools, including
-graphical user interfaces (GUIs) and hardware manager support. It does this
-by sharing key system resources listed in the
-[docker compose file](docker-compose.yml)
-
-Here is a breakdown of the resources being shared:
-
-- **GUI Support:**
-The container shares your `$DISPLAY` system variable and mounts
-`/tmp/.X11-unix` so that you can run Xilinx tools with a graphical
-interface.
-
-- **Hardware Manager:**
-The volume mount `/run/dbus/system_bus_socket` is necessary to use JTAG via
-the Vivado Hardware Manager.
-
-- **Workspace:**
-The volume mount `${PWD}:${PWD}` allows you to start the container from any
-directory on your local machine and work on your projects directly from there.
-
-- **Vivado/Vitis Toolchain:**
-The volume mount `/tools/Xilinx:/tools/Xilinx` makes the host-installed
-toolchain available inside the container without it needing to be installed
-in the image itself. It's mounted read-write so that `make install_vivado`
-can also write the toolchain onto the host through this same mount.
+- `$DISPLAY` + `/tmp/.X11-unix` - GUI support.
+- `/run/dbus/system_bus_socket` - JTAG / Vivado Hardware Manager.
+- `${PWD}:${PWD}` - workspace; run the container from any directory.
+- `/tools/Xilinx:/tools/Xilinx` - host-installed toolchain, mounted
+read-write so `make install_vivado` can also write through it.
