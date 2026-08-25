@@ -18,6 +18,11 @@ export DEBUG_DOCKER?=true
 # Optionally set to "--progress=plain" to help debug docker build process
 # export PROGRESS_DEBUG?=--progress=plain
 
+# Host directory where Vivado/Vitis gets installed. Hardcoded - if you need
+# a different location, grep this repo for XILINX_INSTALL_DIR and update it
+# there.
+export XILINX_INSTALL_DIR := /tools/Xilinx
+
 export COMPOSE_FILE ?= -f compose.yml
 # Container compose commands - DOCKER
 # export CONTAINER_COMPOSE_BUILD ?= DOCKER_BUILDKIT=1 docker-compose $(COMPOSE_FILE) build
@@ -61,18 +66,80 @@ $(SETUP_EXECUTABLE): $(UNIFIED_INSTALL_PACKAGE).bin $(TEMP_FLAG)
 	# Copy config files into the install directory
 	cp layer1-xilinx/install_config_1_vitis.txt temp/
 
-image_base: layer0-base/Dockerfile-base
+.PHONY: image_base
+image_base: .done_image_base
+
+.done_image_base: layer0-base/Dockerfile-base
 	$(CONTAINER_COMPOSE_BUILD) $(PROGRESS_DEBUG) base-u24
 	touch layer0-base/Dockerfile-base
+	touch .done_image_base
 
-image_xilinx: $(SETUP_EXECUTABLE) layer1-xilinx/Dockerfile-xilinx-1-dependencies layer1-xilinx/Dockerfile-xilinx-3-vitis-unified
-	$(CONTAINER_COMPOSE_BUILD) $(PROGRESS_DEBUG) xilinx-1-dependencies
-	$(CONTAINER_COMPOSE_BUILD) $(PROGRESS_DEBUG) xilinx-3-vitis-unified
-	touch layer1-xilinx/Dockerfile-xilinx
+.PHONY: image_xilinx
+image_xilinx: .done_image_xilinx
+
+.done_image_xilinx: $(SETUP_EXECUTABLE) layer1-xilinx/Dockerfile-xilinx-dependencies check_xilinx_install_dir_exists .done_image_base
+	$(CONTAINER_COMPOSE_BUILD) $(PROGRESS_DEBUG) xilinx-dependencies
+	touch layer1-xilinx/Dockerfile-xilinx-dependencies
+	touch .done_image_xilinx
+
+# Install Vivado/Vitis onto the host at $(XILINX_INSTALL_DIR) by running the
+# installer through the xilinx-dependencies service (which always mounts
+# $(XILINX_INSTALL_DIR) read-write at /tools/Xilinx - see compose.yml).
+# Requires generate_auth_token.sh to be filled in (see the $(TEMP_FLAG) rule
+# above).
+#
+# NOTE: the entrypoint's run_command() rebuilds the command by joining "$@"
+# with spaces and re-wrapping it in a single `bash -c`, which mangles nested
+# quoting (e.g. a self-authored "bash -c '...'" here). So this must be a
+# flat list of shell words/operators (not pre-wrapped in bash -c) for the
+# entrypoint's own wrapping to reconstruct correctly.
+#
+# The chown is mostly a safety net: with userns_mode: keep-id,
+# $(XILINX_INSTALL_DIR) should already be owned by the invoking host user
+# (see check_xilinx_install_dir_writable below), so this is a no-op unless
+# that check was somehow bypassed.
+install_vivado: image_xilinx check_xilinx_install_dir_writable
+	$(CONTAINER_COMPOSE_RUN) --workdir $(PWD)/temp xilinx-dependencies \
+		sudo chown $(USER_ID):$(GROUP_ID) /tools/Xilinx '&&' \
+		./generate_auth_token.sh '&&' \
+		./xsetup --agree XilinxEULA,3rdPartyEULA --batch Install --config ./install_config_1_vitis.txt '&&' \
+		rm -f $(HOME)/.Xilinx/wi_authentication_key
+
+# Inform (don't fix): the toolchain install directory is expected to already
+# exist and be owned by the calling user. We never sudo/mkdir on the user's
+# behalf here - just point them at what to run.
+check_xilinx_install_dir_exists:
+	@if [ ! -d "$(XILINX_INSTALL_DIR)" ]; then \
+		echo ""; \
+		echo "The configured Xilinx install directory does not exist:"; \
+		echo "  $(XILINX_INSTALL_DIR)"; \
+		echo ""; \
+		echo "Please create it, e.g.:"; \
+		echo "  sudo mkdir -p $(XILINX_INSTALL_DIR)"; \
+		echo "  sudo chown $(USER_ID):$(GROUP_ID) $(XILINX_INSTALL_DIR)"; \
+		echo ""; \
+		exit 1; \
+	fi
+
+check_xilinx_install_dir_writable: check_xilinx_install_dir_exists
+	@if ! touch "$(XILINX_INSTALL_DIR)/.write_test" 2>/dev/null; then \
+		echo ""; \
+		echo "The configured Xilinx install directory exists but is not writable"; \
+		echo "by $$(id -un):"; \
+		echo "  $(XILINX_INSTALL_DIR)"; \
+		echo ""; \
+		echo "Please fix its ownership/permissions, e.g.:"; \
+		echo "  sudo chown $(USER_ID):$(GROUP_ID) $(XILINX_INSTALL_DIR)"; \
+		echo "or:"; \
+		echo "  sudo chmod 777 $(XILINX_INSTALL_DIR)"; \
+		echo ""; \
+		exit 1; \
+	fi
+	@rm -f "$(XILINX_INSTALL_DIR)/.write_test"
 
 # Attach to local image
 attach_base:
 	$(CONTAINER_COMPOSE_RUN) base-u24
 
-attach_xilinx:
-	$(CONTAINER_COMPOSE_RUN) xilinx-3-vitis-unified
+attach_xilinx: check_xilinx_install_dir_exists
+	$(CONTAINER_COMPOSE_RUN) xilinx-dependencies

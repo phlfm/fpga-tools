@@ -34,6 +34,13 @@ x-params-xilinx-volumes: &params-xilinx-volumes
         - /tmp/.X11-unix:/tmp/.X11-unix
         - "${PWD}/.Xilinx:${HOME}/.Xilinx"
         - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
+        # Vivado/Vitis is installed on the host (not inside the image) to
+        # avoid xsetup running out of disk space during the docker build.
+        # The container only supplies the OS and required libs; mount the
+        # host install so the toolchain is available at runtime. Mounted
+        # read-write so `make install_vivado` can also write the install
+        # through this same mount (see the Makefile).
+        - ${XILINX_INSTALL_DIR}:/tools/Xilinx
 
 services:
     # Base ubuntu image
@@ -46,21 +53,20 @@ services:
         hostname: base-u24
         container_name: base-u24
 
-    # Xilinx installation (Vivado, Vitis, etc)
-    xilinx-1-dependencies:
+    # OS + libraries needed by Vivado/Vitis/Petalinux. Does NOT contain
+    # Vivado/Vitis itself - `make install_vivado` reuses this same service
+    # to run the installer against /tools/Xilinx. See README.md.
+    xilinx-dependencies:
         <<: [*params-common-run, *params-xilinx-volumes]
         build:
             <<: *params-common-build
-            dockerfile: layer1-xilinx/Dockerfile-xilinx-1-dependencies
-        image: xilinx-1-dependencies
-        hostname: xilinx-1-dependencies
-        container_name: xilinx-1-dependencies
-
-    xilinx-3-vitis-unified:
-        <<: [*params-common-run, *params-xilinx-volumes]
-        build:
-            <<: *params-common-build
-            dockerfile: layer1-xilinx/Dockerfile-xilinx-3-vitis-unified
-        image: xilinx-3-vitis-unified
-        hostname: xilinx-3-vitis-unified
-        container_name: xilinx-3-vitis-unified
+            dockerfile: layer1-xilinx/Dockerfile-xilinx-dependencies
+        image: xilinx-dependencies
+        hostname: xilinx-dependencies
+        container_name: xilinx-dependencies
+        # Run as the host user's own UID/GID (mapped 1:1 into the
+        # container) instead of the default rootless subuid range, so
+        # anything written to host bind mounts is owned by the real host
+        # user. Safe here because the entrypoint no longer needs root (the
+        # sudoers grant is baked into the image at build time).
+        userns_mode: "keep-id"

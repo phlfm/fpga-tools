@@ -67,7 +67,6 @@ function configure_user() {
         # BACHRC_DONE avoids adding this many times to bashrc
         echo "if [ \"\${DEBUG_DOCKER}\" == \"true\" ]; then echo 'Running .bashrc ...'; fi" >> ${BASHRC}
         echo "alias activate_petalinux='source ${ACTIVATE_PETALINUX}'" >> ${BASHRC}
-        echo "alias activate_vivado='source ${ACTIVATE_VIVADO}'" >> ${BASHRC}
         echo "alias activate_vitis='source ${ACTIVATE_VITIS}'" >> ${BASHRC}
         echo "echo " >> ${BASHRC}
         echo "echo '*--------------------------------------------------------*'" >> ${BASHRC}
@@ -95,11 +94,11 @@ function configure_user() {
     if [ -n "$(command -v xrdb)" ]; then
         echo "echo 'XTerm.VT100.geometry: 230x60' | xrdb -merge -" >> ${BASHRC}
     fi
-    chown -R ${USER_ID}:${GROUP_ID} ${BASHRC}
 
-    # Remove user password for sudo.
-    echo "${USER_NAME} ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-    chown ${USER_NAME} /home/${USER_NAME}
+    # No chown/sudoers setup here: this entrypoint runs directly as
+    # ${USER_NAME} (the container is started with --userns=keep-id, and the
+    # Dockerfile already grants passwordless sudo at build time), so
+    # everything it creates under $HOME is already owned correctly.
 
     # Create Xilinx user configuration directory
     mkdir -p ${HOME}/.Xilinx/${XILINX_VERSION}/XilinxTclStore
@@ -108,7 +107,7 @@ function configure_user() {
 }
 
 function run_command {
-    CMD=(sudo -u "${USER_NAME}" -E)
+    CMD=()
 
     # If arguments are provided, run them as a command
     # Otherwise, start an interactive shell
@@ -123,7 +122,9 @@ function run_command {
         echo "Running command as ${USER_NAME}: ${CMD[*]}"
     fi
 
-    # Replace current shell with the target command
+    # Replace current shell with the target command. No privilege drop
+    # needed here: the container is started as ${USER_NAME} directly (see
+    # --userns=keep-id in compose.yml).
     exec "${CMD[@]}"
 }
 

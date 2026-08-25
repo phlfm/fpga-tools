@@ -3,3 +3,4 @@ Xilinx_Unified_*
 *.run
 .dockerignore
 temp/**
+.done_*

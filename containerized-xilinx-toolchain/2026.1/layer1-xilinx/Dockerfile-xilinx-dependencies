@@ -14,6 +14,13 @@
 # Warning 2: if receiving "# failed to compute cache key: not found: not found"
 # errors, check that the mount location is not being captured by the
 # .dockerignore file
+#
+# Note: Vivado/Vitis is NOT installed into this image. It is installed on
+# the host at /tools/Xilinx (see the "install_vivado" Makefile target, which
+# runs the installer through this image with /tools/Xilinx bind-mounted
+# read-write) and bind-mounted back in read-only at runtime (see
+# compose.yml). This image only provides the OS and the libraries the
+# toolchain needs.
 
 ################################################################################
 
@@ -21,6 +28,12 @@ FROM base-u24
 
 # Labels
 LABEL description="Image for Xilinx toolchain"
+
+ARG GROUP_ID
+ARG USER_ID
+ARG USER_NAME
+ARG XILINX_VERSION
+ENV XILINX_VERSION=${XILINX_VERSION}
 
 # Initial steps for Installation
 RUN mkdir -p /tools/Xilinx
@@ -116,6 +129,27 @@ RUN --mount=type=bind,target=/temp,source=temp,rw \
 
 # Needed for Petalinux: /bin/bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
 RUN locale-gen en_US.UTF-8 && update-locale
+
+# Point sh to bash instead of dash - Petalinux exepected bash instead of dash
+# so it might be a good practice to change it still for Vivado/Vitis
+RUN rm /bin/sh && ln -s /bin/bash /bin/sh
+
+# Create user inside container (this avoids ERROR: Exiting Installer: Cannot install as root user !)
+# It is common to see this being done in the "entrypoint.sh" but this container
+# is meant to be built locally and not distribuited through
+# nexus or other means due to its huge size.
+# Thus we can create the user and set uid/gid during build process.
+RUN /usr/sbin/groupadd --gid ${GROUP_ID} ${USER_NAME} && \
+    /usr/sbin/useradd --shell /bin/bash -u ${USER_ID} -g ${GROUP_ID} \
+        --groups sudo -m ${USER_NAME} > /dev/null 2>&1
+
+# Grant passwordless sudo at build time (while we're genuinely root) so the
+# entrypoint never needs to run as root itself. That lets containers from
+# this image be started with `--userns=keep-id`/`userns_mode: keep-id`,
+# which runs the entrypoint directly as the host user and keeps anything it
+# writes to host bind mounts (e.g. /tools/Xilinx during install) owned by
+# the real host UID/GID instead of a subuid-mapped one.
+RUN echo "${USER_NAME} ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
 # Setup entrypoint
 COPY layer1-xilinx/entrypoint-xilinx.sh /entrypoint-xilinx.sh
