@@ -1,0 +1,72 @@
+# Builds xilinx-dependencies by extending ai-dev's compose service (instead
+# of this repo's own base-u24), so the container also has the AI CLIs and
+# HDL sim tools from ~/work/containers. Selected via EXTENDED_SUFFIX in the
+# Makefile - see README.md.
+#
+# podman-compose `extends` merges list fields (volumes/environment/
+# security_opt/cap_drop/build.args) by union/concatenation, never by
+# replacement - so this file only needs to declare what's *additional* to
+# ai-dev, but can't clear anything ai-dev sets. Dict fields (build.context/
+# dockerfile, deploy.resources.limits) do override per-key as expected.
+# Relative paths (build.context/dockerfile) resolve against this file, not
+# ai-dev's.
+#
+# ai-dev's `security_opt: [no-new-privileges]` and `cap_drop: [ALL]` come
+# along via that union-merge:
+#   - cap_drop: [ALL] is made moot by `privileged: true` below.
+#   - security_opt: [no-new-privileges] is cancelled by adding
+#     `no-new-privileges:false` (below): compose always renders ai-dev's
+#     flags before this file's, and podman applies repeated --security-opt
+#     flags in order, so whichever comes last wins. An empty-list override
+#     (`security_opt: []`) does NOT clear it - it's still a union-merge, so
+#     the inherited entry survives. The Compose Spec's `!override` tag,
+#     which would replace instead of merge, is unsupported on this
+#     podman-compose version (fails with `TypeError: 'OverrideTag' object is
+#     not iterable`).
+#
+# localhost/fpga_dev must already be built (see
+# ~/work/containers/environment_fpga_run.composefile).
+
+services:
+  xilinx-dependencies:
+    extends:
+      file: ${HOME}/work/containers/environment_ai_dev.composefile
+      service: ai-dev
+    image: xilinx-dependencies
+    container_name: xilinx-dependencies
+    build:
+      context: .
+      dockerfile: layer1-xilinx/Dockerfile-xilinx-dependencies
+      args:
+        USER_ID: ${USER_ID}
+        GROUP_ID: ${GROUP_ID}
+        USER_NAME: ${USER_NAME}
+        XILINX_VERSION: ${XILINX_VERSION}
+        BASE_IMAGE: ${BASE_IMAGE}
+        EXTEND_BASE: ${EXTEND_BASE}
+    init: true
+    # JTAG / Vivado Hardware Manager needs this. Also nullifies ai-dev's
+    # inherited cap_drop: [ALL] (see header note).
+    privileged: true
+    # Cancels ai-dev's inherited no-new-privileges (see header note).
+    security_opt:
+      - no-new-privileges:false
+    # ai-dev's 8g/100-pid limits are too tight for Vivado/Vitis synthesis
+    # and implementation.
+    deploy:
+      resources:
+        limits:
+          memory: 36g
+          pids: 5000
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - "${PWD}/.Xilinx:/home/${USER_NAME}/.Xilinx"
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
+      - ${XILINX_INSTALL_DIR}:/tools/Xilinx
+    environment:
+      - USER_ID=${USER_ID}
+      - GROUP_ID=${GROUP_ID}
+      - USER_NAME=${USER_NAME}
+      - DISPLAY=${DISPLAY}
+      - DEBUG_DOCKER=${DEBUG_DOCKER}
+      - ACTIVATE_ENV=${ACTIVATE_ENV}

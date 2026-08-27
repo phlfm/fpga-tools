@@ -66,9 +66,10 @@ function configure_user() {
     if [ ! -f ${BASHRC_DONE} ]; then
         # BACHRC_DONE avoids adding this many times to bashrc
         echo "if [ \"\${DEBUG_DOCKER}\" == \"true\" ]; then echo 'Running .bashrc ...'; fi" >> ${BASHRC}
+        echo "alias activate_vivado='source ${ACTIVATE_VIVADO}'" >> ${BASHRC}
         echo "alias activate_petalinux='source ${ACTIVATE_PETALINUX}'" >> ${BASHRC}
         echo "alias activate_vitis='source ${ACTIVATE_VITIS}'" >> ${BASHRC}
-        echo "echo " >> ${BASHRC}
+        echo "" >> ${BASHRC}
         echo "echo '*--------------------------------------------------------*'" >> ${BASHRC}
         echo "echo '| Available environments:               VERSION ${XILINX_VERSION}   |'" >> ${BASHRC}
         echo "echo '|                                                        |'" >> ${BASHRC}
@@ -84,6 +85,11 @@ function configure_user() {
         echo "if [ -f \${FILE_TO_ACTIVATE} ]; then" >> ${BASHRC}
         echo "    source \${FILE_TO_ACTIVATE}" >> ${BASHRC}
         echo "fi" >> ${BASHRC}
+        echo "" >> ${BASHRC}
+        echo "if [ -f ${HOME}/.myenvs/env_xilinx.sh ]; then" >> ${BASHRC}
+        echo "    source ${HOME}/.myenvs/env_xilinx.sh" >> ${BASHRC}
+        echo "fi" >> ${BASHRC}
+        echo "" >> ${BASHRC}
         touch ${BASHRC_DONE}
     fi
 

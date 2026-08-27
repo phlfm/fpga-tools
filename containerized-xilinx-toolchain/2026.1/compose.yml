@@ -9,7 +9,7 @@ x-params-common-run: &params-common-run
     environment:
         - USER_ID=${USER_ID}
         - GROUP_ID=${GROUP_ID}
-        - USER_NAME=${USER}
+        - USER_NAME=${USER_NAME}
         - DISPLAY=${DISPLAY}
         - DEBUG_DOCKER=${DEBUG_DOCKER}
 
@@ -20,7 +20,7 @@ x-params-common-build: &params-common-build
     args:
         USER_ID: ${USER_ID}
         GROUP_ID: ${GROUP_ID}
-        USER_NAME: ${USER}
+        USER_NAME: ${USER_NAME}
         XILINX_VERSION: ${XILINX_VERSION}
 
 x-params-base-volumes: &params-base-volumes
@@ -32,7 +32,8 @@ x-params-xilinx-volumes: &params-xilinx-volumes
     volumes:
         - ${PWD}:${PWD}
         - /tmp/.X11-unix:/tmp/.X11-unix
-        - "${PWD}/.Xilinx:${HOME}/.Xilinx"
+        - "${PWD}/.Xilinx:/home/${USER_NAME}/.Xilinx"
+        - "${HOME}/.myenvs:/home/${USER_NAME}/.myenvs"
         - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
         # Vivado/Vitis is installed on the host (not inside the image) to
         # avoid xsetup running out of disk space during the docker build.
@@ -61,6 +62,13 @@ services:
         build:
             <<: *params-common-build
             dockerfile: layer1-xilinx/Dockerfile-xilinx-dependencies
+            args:
+                USER_ID: ${USER_ID}
+                GROUP_ID: ${GROUP_ID}
+                USER_NAME: ${USER_NAME}
+                XILINX_VERSION: ${XILINX_VERSION}
+                BASE_IMAGE: ${BASE_IMAGE}
+                EXTEND_BASE: ${EXTEND_BASE}
         image: xilinx-dependencies
         hostname: xilinx-dependencies
         container_name: xilinx-dependencies

@@ -61,6 +61,24 @@ selected.
 On start you'll see the toolchain version and the `activate_*` aliases
 available for the tool environments (CLI and GUI).
 
+## Extended Variant
+
+`EXTENDED_SUFFIX=_extended` builds `xilinx-dependencies` on top of
+`localhost/fpga_dev` (AI CLIs + HDL sim tools, from `~/work/containers`)
+instead of this repo's own `base-u24`, so one container has Vivado/Vitis,
+the FPGA sim tools, and the AI CLIs.
+
+Prerequisites:
+- `localhost/fpga_dev` already built (see
+  `~/work/containers/environment_fpga_run.composefile`).
+- Its baked-in `dev` user is UID/GID 1000:1000; your host user must match.
+
+Usage: prefix any target with `EXTENDED_SUFFIX=_extended`, e.g.
+`EXTENDED_SUFFIX=_extended make image_xilinx` and
+`EXTENDED_SUFFIX=_extended make attach_xilinx`. This uses
+[extended_compose.yml](extended_compose.yml) and its own build marker, so it
+won't collide with or force a rebuild of the standalone variant.
+
 ## Shared Resources
 
 See [compose.yml](compose.yml).

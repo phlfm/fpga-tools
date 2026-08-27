@@ -2,8 +2,31 @@
 # Makefile for building fpga/vivado Docker image
 #-----------------------------------------------------------------
 
-export USER_ID=$(shell id -u)
-export GROUP_ID=$(shell id -g)
+# Set "EXTENDED_SUFFIX=_extended" to build xilinx-dependencies on top of
+# another image (extending it) instead of this repo's own base-u24.
+# Leave unset/empty for the standalone variant.
+export EXTENDED_SUFFIX ?=
+
+ifeq ($(strip $(EXTENDED_SUFFIX)),)
+export EXTEND_BASE := false
+export BASE_IMAGE  := base-u24
+export USER_NAME   := $(shell id -un)
+export USER_ID     := $(shell id -u)
+export GROUP_ID    := $(shell id -g)
+export COMPOSE_FILE ?= -f compose.yml
+else
+# If extending, change your base image here
+export EXTEND_BASE := true
+export BASE_IMAGE  := localhost/fpga_dev
+export USER_NAME   := dev
+export USER_ID     := 1000
+export GROUP_ID    := 1000
+export COMPOSE_FILE ?= -f extended_compose.yml
+endif
+
+# Marker is suffixed so toggling EXTENDED_SUFFIX always forces its own
+# rebuild instead of reusing a stale marker left by the other variant.
+export XILINX_MARKER := .done_image_xilinx$(EXTENDED_SUFFIX)
 
 # Configure Xilinx Tool Versions
 export XILINX_VERSION=2026.1
@@ -23,7 +46,6 @@ export DEBUG_DOCKER?=true
 # there.
 export XILINX_INSTALL_DIR := /tools/Xilinx
 
-export COMPOSE_FILE ?= -f compose.yml
 # Container compose commands - DOCKER
 # export CONTAINER_COMPOSE_BUILD ?= DOCKER_BUILDKIT=1 docker-compose $(COMPOSE_FILE) build
 # export CONTAINER_COMPOSE_RUN   ?= docker-compose $(COMPOSE_FILE) run --rm
@@ -75,12 +97,18 @@ image_base: .done_image_base
 	touch .done_image_base
 
 .PHONY: image_xilinx
-image_xilinx: .done_image_xilinx
+image_xilinx: $(XILINX_MARKER)
 
-.done_image_xilinx: $(SETUP_EXECUTABLE) layer1-xilinx/Dockerfile-xilinx-dependencies check_xilinx_install_dir_exists .done_image_base
+XILINX_MARKER_DEPS := $(SETUP_EXECUTABLE) layer1-xilinx/Dockerfile-xilinx-dependencies check_xilinx_install_dir_exists
+ifeq ($(EXTEND_BASE),false)
+# Not extending an external base: build on top of this repo's own base-u24.
+XILINX_MARKER_DEPS += .done_image_base
+endif
+
+$(XILINX_MARKER): $(XILINX_MARKER_DEPS)
 	$(CONTAINER_COMPOSE_BUILD) $(PROGRESS_DEBUG) xilinx-dependencies
 	touch layer1-xilinx/Dockerfile-xilinx-dependencies
-	touch .done_image_xilinx
+	touch $(XILINX_MARKER)
 
 # Install Vivado/Vitis onto the host at $(XILINX_INSTALL_DIR) by running the
 # installer through the xilinx-dependencies service (which always mounts
@@ -136,10 +164,3 @@ check_xilinx_install_dir_writable: check_xilinx_install_dir_exists
 		exit 1; \
 	fi
 	@rm -f "$(XILINX_INSTALL_DIR)/.write_test"
-
-# Attach to local image
-attach_base:
-	$(CONTAINER_COMPOSE_RUN) base-u24
-
-attach_xilinx: check_xilinx_install_dir_exists
-	$(CONTAINER_COMPOSE_RUN) xilinx-dependencies

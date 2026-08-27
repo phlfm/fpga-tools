@@ -24,7 +24,13 @@
 
 ################################################################################
 
-FROM base-u24
+ARG BASE_IMAGE=base-u24
+FROM ${BASE_IMAGE}
+
+# BASE_IMAGE may already end as a non-root user (e.g. localhost/fpga_dev
+# ends with "USER dev"). All RUN steps below need root, so reset
+# unconditionally - a no-op for base-u24, which is already root.
+USER root
 
 # Labels
 LABEL description="Image for Xilinx toolchain"
@@ -33,6 +39,10 @@ ARG GROUP_ID
 ARG USER_ID
 ARG USER_NAME
 ARG XILINX_VERSION
+ARG EXTEND_BASE=false
+# Redeclare: ARGs declared before FROM aren't visible in RUN instructions
+# after it unless redeclared here (only used below for a log message).
+ARG BASE_IMAGE
 ENV XILINX_VERSION=${XILINX_VERSION}
 
 # Initial steps for Installation
@@ -103,6 +113,7 @@ RUN dpkg --add-architecture i386 && \
 # dnsutils needed for Petalinux
 # locales needed for Petalinux
 # x11-utils needed for xlsclients (needed for vitis)
+# lsb-release needed for vivado proper OS detection (also used by installLibs.sh)
 RUN apt-get update && apt-get install -y \
     bc \
     libxtst6 \
@@ -115,6 +126,7 @@ RUN apt-get update && apt-get install -y \
     libidn12 \
     dbus-x11 \
     x11-utils \
+    lsb-release \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -139,9 +151,16 @@ RUN rm /bin/sh && ln -s /bin/bash /bin/sh
 # is meant to be built locally and not distribuited through
 # nexus or other means due to its huge size.
 # Thus we can create the user and set uid/gid during build process.
-RUN /usr/sbin/groupadd --gid ${GROUP_ID} ${USER_NAME} && \
-    /usr/sbin/useradd --shell /bin/bash -u ${USER_ID} -g ${GROUP_ID} \
-        --groups sudo -m ${USER_NAME} > /dev/null 2>&1
+#
+# When EXTEND_BASE=true, BASE_IMAGE already provides USER_NAME with matching
+# UID/GID (e.g. localhost/fpga_dev's "dev" user) - skip re-creating it.
+RUN if [ "${EXTEND_BASE}" != "true" ]; then \
+        /usr/sbin/groupadd --gid ${GROUP_ID} ${USER_NAME} && \
+        /usr/sbin/useradd --shell /bin/bash -u ${USER_ID} -g ${GROUP_ID} \
+            --groups sudo -m ${USER_NAME} > /dev/null 2>&1 ; \
+    else \
+        echo "EXTEND_BASE=true: reusing ${USER_NAME} (uid=${USER_ID} gid=${GROUP_ID}) from ${BASE_IMAGE}" ; \
+    fi
 
 # Grant passwordless sudo at build time (while we're genuinely root) so the
 # entrypoint never needs to run as root itself. That lets containers from
@@ -153,4 +172,15 @@ RUN echo "${USER_NAME} ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
 # Setup entrypoint
 COPY layer1-xilinx/entrypoint-xilinx.sh /entrypoint-xilinx.sh
+
+# Run as the (created or inherited) non-root user by default. Without this,
+# the image's default user stays root (from the unconditional "USER root"
+# above), and `userns_mode: keep-id` alone does NOT change which user the
+# container starts as - it only controls how that user's UID/GID map onto
+# the host. Root inside + keep-id would map container UID 0 to some host
+# subuid, not to the invoking host user, which is why builds with
+# EXTEND_BASE=true (image built at 1000:1000, no host UID/GID passed at
+# runtime) were showing up as root instead of the host user.
+USER ${USER_NAME}
+
 ENTRYPOINT ["/entrypoint-xilinx.sh"]
